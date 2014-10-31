@@ -1,0 +1,15 @@
+{
+  "name": "gocsp-select",
+  "version": "0.0.1",
+  "description": "select from multiple channels, thunks, promises, events, etc",
+  "main": "index.js",
+  "directories": {
+    "example": "example",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "gyson <eilian.yunsong@gmail.com>",
+  "license": "MIT"
+}
