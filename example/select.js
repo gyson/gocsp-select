@@ -1,31 +1,41 @@
-var co = require('gocsp-co')
-var select = require('gocsp-select')
 
-co(function* () {
-    yield select(s => s
-        .take(chan_0, function (obj) {
-            // default: identity
-        })
-        .put(chan_1, val, function (ok) {
-            // default: identity
-        })
-        .wait(thunk_or_promise, function (err, data) {
-            // default: forward
-        })
-        .once(event, type, function (a, b, c) {
-            // default: identity
-        })
-        .timeout(1000, function () {
-            // default: timeout error
-        })
-    )
-})()
+var go = require('gocsp-go')
+var select = require('..')
+var timeout = require('gocsp-timeout')
+var Channel = require('gocsp-channel')
 
-co(function* () {
-    yield select(s => s
-        .take(chan_0)
-        .take(chan_1)
-        .take(chan_2)
-        .take(chan_3)
-    )
+var chan1 = new Channel()
+var chan2 = new Channel()
+
+go(function* () {
+    for (var i = 0; i < 10; i++) {
+        yield select(function (s) {
+            s(chan2.take(), function () {
+                console.log('from chan2')
+            })
+            ||
+            s(chan1.take(), function () {
+                console.log('from chan1')
+            })
+            ||
+            s(timeout(1000), function () {
+                console.log('timeout')
+            })
+        })
+        console.log('okk')
+    }
+})
+
+go(function* () {
+    for (var i = 0; i < 10; i++) {
+        // p('aaa')
+        if (Math.random() > 0.5) {
+            yield chan1.put(1)
+        } else {
+            yield chan2.put(2)
+        }
+        yield timeout(2000)
+    }
+    console.log(chan1._length)
+    console.log(chan2._length)
 })

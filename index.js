@@ -1,184 +1,88 @@
+'use strict';
 
-'use strict'
+module.exports = exports = select
 
-module.exports = select
-
-var co = require('gocsp-co')
+var go = require('gocsp-go')
 var thunk = require('gocsp-thunk')
 
-function select(fn) {
-    return thunk(function (cb) {
-        var selector = new Selector(cb)
+function select(f) {
+    return thunk(function (done) {
+        new Selector(done).init(f)
+    })
+}
+exports.select = select
+
+function Selector(done) {
+    this.done = done
+    this.selected = false
+    this.cancels = []
+    this.hasCancelError = false
+    this.cancelError = null
+}
+
+Selector.prototype.init = function (f) {
+    try {
+        var self = this
+        f(function s(obj, fn) {
+            if (self.selected) {
+                if (thunk.isThunk(obj) && obj('isCancellable')) {
+                    try {
+                        obj('cancel') // cancel thunk
+                    } catch (e) {}    // swallow error if any
+                }
+                return self.selected
+            }
+
+            var t = thunk.toThunk(obj)
+
+            t(function (err, val) {
+                if (self.selected) { return }
+                self.finish(err, val, fn)
+            })
+
+            if (!self.selected && t('isCancellable')) {
+                self.cancels.push(t)
+            }
+
+            return self.selected
+        })
+    } catch (e) {
+        self.finish(e)
+    }
+}
+
+Selector.prototype.finish = function (err, val, fn) {
+    if (this.selected) { return }
+    this.selected = true
+
+    for (var i = 0; i < this.cancels.length; i++) {
         try {
-            fn.call(selector, selector)
+            this.cancels[i]('cancel')
         } catch (e) {
-            if (!selector._selected) {
-                cleanup(selector)
-                throw e
-            }
+            this.hasCancelError = true
+            this.cancelError = e
         }
-    })
-}
-
-function cleanup(selector) {
-    selector._selected = true
-    selector._cancels.forEach(function (cancel) {
-        cancel()
-    })
-    selector._cancels = null
-    selector._channels = null
-}
-
-function Selector(callback) {
-    this._selected = false
-    this._cancels = []
-    this._channels = new WeakSet() // use WeakSet or [] ?
-
-    var self = this
-    thunk(function (cb) {
-        self._cb = cb
-    })(function (fn, args, ctx) {
-        if (self._selected) { return }
-        cleanup(self)
-        try {
-            if (co.isGenFun(fn)) {
-                co(fn).apply(ctx, args)(callback)
-            } else {
-                callback(null, fn.apply(ctx, args))
-            }
-        } catch (err) {
-            callback(err)
-        }
-    })
-}
-
-/*
-    No duplicate channel allowed
-*/
-function assertNoDuplicateChannel(selector, chan) {
-    if (selector._channels.has(chan)) {
-        throw new Error('Cannot have duplicated channel')
     }
-    selector._channels.add(chan)
-}
-
-
-function defaultTake(obj) {
-    return obj
-}
-
-// .take(chan, fn)
-Selector.prototype.take = function (chan, fn) {
-    if (this._selected) { return }
-    var self = this
-
-    assertNoDuplicateChannel(self, chan)
-
-    var item = chan.take(function (data) {
-        self._cb(fn || defaultTake, [data])
-    })
-
-    if (!self._selected) {
-        self._cancels.push(function () {
-            chan.cancel(item)
-        })
+    if (this.hasCancelError) {
+        this.done(this.cancelError)
+        return
     }
-
-    return this
-}
-
-function defaultPut(ok) {
-    return ok
-}
-
-// .put(chan, value, fn)
-// if it return a promise / function (co)
-Selector.prototype.put = function (chan, value, fn) {
-    if (this._selected) { return }
-    var self = this
-
-    assertNoDuplicateChannel(self, chan)
-
-    var item = chan.put(value, function (ok) {
-        self._cb(fn || defaultPut, [ok])
-    })
-
-    if (!self._selected) {
-        self._cancels.push(function () {
-            chan.cancel(item)
-        })
+    if (typeof fn !== 'function') {
+        this.done(err, val)
+        return
     }
-
-    return this
-}
-
-function defaultWait (err, val) {
-    if (err) {
-        throw err
-    } else {
-        return val
+    if (isGeneratorFunction(fn)) {
+        go(fn(err, val))(this.done)
+        return
+    }
+    try {
+        this.done(null, fn(err, val))
+    } catch (error) {
+        this.done(error)
     }
 }
 
-// .wait(thunk/promise, cb)
-// thunk / callback / promise
-Selector.prototype.wait =
-Selector.prototype.await = function (object, fn) {
-    if (this._selected) { return }
-
-    var self = this
-
-    // wrap it as thunk if it's promise
-    if (object && typeof object.then === 'function') {
-        object = thunk.from(object)
-    }
-
-    // it's thunk or callback
-    if (typeof object === 'function') {
-        if (!thunk.isThunk(object)) {
-            // wrap it if it's just callback for safety
-            object = thunk(object)
-        }
-        // handle thunk here
-        object(function () {
-            self._cb(fn || defaultWait, arguments)
-        })
-
-        return this
-    }
-
-    throw new TypeError('invalid type to wait')
-}
-
-function defaultOnce() {} // noop
-
-// .once(event, 'data', data => { ... })
-Selector.prototype.once = function (event, type, fn) {
-    if (this._selected) { return }
-
-    var self = this
-    function listener() {
-        self._cb(fn || defaultOnce, arguments, this)
-    }
-    this._cancels.push(function () {
-        event.removeListener(listener)
-    })
-    event.on(type, listener)
-
-    return this
-}
-
-function defaultTimeout() {
-    throw new Error('Timeout!')
-}
-
-Selector.prototype.timeout = function (time, fn) {
-    if (this._selected) { return }
-
-    var self = this
-    setTimeout(function () {
-        self._cb(fn || defaultTimeout)
-    }, time)
-
-    return this
+function isGeneratorFunction(obj) {
+    return obj && obj.constructor
+        && obj.constructor.name === 'GeneratorFunction'
 }

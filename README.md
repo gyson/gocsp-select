@@ -6,52 +6,32 @@ select from multiple channels, thunks, promises, events, etc
 ## Example
 
 ```js
-var co = require('gocsp-co')
+var go = require('gocsp-go')
 var select = require('gocsp-select')
+var timeout = require('gocsp-timeout')
+var Channel = require('gocsp-channel')
 
-co(function* () {
-    yield select(s => s
-        .take(chan_0, function (val) {
-            // default: identity
+var chan1 = new Channel()
+var chan2 = new Channel()
+
+go(function* () {
+    yield select(function (s) {
+        s(chan2.take(), function () {
+            console.log('from chan2')
         })
-        .put(chan_1, val, function (ok) {
-            // default: identity
+        ||
+        s(chan1.take(), function () {
+            console.log('from chan1')
         })
-        .wait(thunk_or_promise, function (err, data) {
-            // default: forward
+        ||
+        s(timeout(1000), function () {
+            console.log('timeout')
         })
-        .once(event, type, function (a, b, c) {
-            // default: identity
-        })
-        .timeout(1000, function () {
-            // default: timeout error
-        })
-    )
-})()
+    })
+    console.log('okk')
+})
 ```
 
-or in coffeescript
+## License
 
-```coffeescript
-co = require 'gocsp-co'
-select = require 'gocsp-select'
-
-# probably need latest coffee (1.8.* or 1.9.* ?) for generator syntax
-do co ->
-  yield select ->
-    @take chan_0, (obj) ->
-      # default: identity
-      # do something
-    @put chan_1, val, (ok) ->
-      # default: identity
-      # do something
-    @wait thunk_or_promise, (err, data) ->
-      # default: forward
-      # do something
-    @once event, type, (a, b, c) ->
-      # default: identity
-      # do something
-    @timeout 1000, ->
-      # default: timeout error
-      # do something
-```
+MIT
